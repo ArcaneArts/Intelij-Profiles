@@ -35,11 +35,13 @@ class ProfilesService : SimplePersistentStateComponent<ProfilesService.ProfilesS
     class ProfileEntry : BaseState() {
         var name by string()
         var color by string()
+        var icon by string()
         var projectPaths by list<String>()
 
         fun toModel(): Profile = Profile(
             name = name.orEmpty(),
             color = color,
+            icon = icon,
             projectPaths = projectPaths.toList(),
         )
     }
@@ -57,57 +59,23 @@ class ProfilesService : SimplePersistentStateComponent<ProfilesService.ProfilesS
 
     fun hasProfile(name: String): Boolean = findEntry(name) != null
 
-    fun addProfile(name: String, paths: List<String> = emptyList(), color: String? = null): Profile {
+    fun addProfile(
+        name: String,
+        paths: List<String> = emptyList(),
+        color: String? = null,
+        icon: String? = null,
+    ): Profile {
         require(name.isNotBlank()) { "Profile name must not be blank" }
         require(!hasProfile(name)) { "A profile named '$name' already exists" }
         val entry = ProfileEntry().apply {
             this.name = name
             this.color = color
+            this.icon = icon
             this.projectPaths = ProjectPaths.normalizeAll(paths).toMutableList()
         }
         state.profiles.add(entry)
         state.bump()
         return entry.toModel()
-    }
-
-    fun deleteProfile(name: String) {
-        val removed = state.profiles.removeIf { it.name == name }
-        if (removed) {
-            if (state.activeProfileName == name) state.activeProfileName = null
-            state.bump()
-        }
-    }
-
-    fun renameProfile(oldName: String, newName: String) {
-        require(newName.isNotBlank()) { "Profile name must not be blank" }
-        val entry = findEntry(oldName) ?: error("No profile named '$oldName'")
-        if (oldName == newName) return
-        require(!hasProfile(newName)) { "A profile named '$newName' already exists" }
-        entry.name = newName
-        if (state.activeProfileName == oldName) state.activeProfileName = newName
-        state.bump()
-    }
-
-    fun setProjectPaths(name: String, paths: List<String>) {
-        val entry = findEntry(name) ?: error("No profile named '$name'")
-        entry.projectPaths = ProjectPaths.normalizeAll(paths).toMutableList()
-        state.bump()
-    }
-
-    fun addProjectToProfile(name: String, path: String) {
-        val entry = findEntry(name) ?: error("No profile named '$name'")
-        val normalized = ProjectPaths.normalize(path)
-        if (entry.projectPaths.none { ProjectPaths.sameProject(it, normalized) }) {
-            entry.projectPaths.add(normalized)
-            state.bump()
-        }
-    }
-
-    fun removeProjectFromProfile(name: String, path: String) {
-        val entry = findEntry(name) ?: error("No profile named '$name'")
-        if (entry.projectPaths.removeIf { ProjectPaths.sameProject(it, path) }) {
-            state.bump()
-        }
     }
 
     /** First "Profile N" name not already taken — used to seed the new/save dialogs. */
@@ -125,6 +93,7 @@ class ProfilesService : SimplePersistentStateComponent<ProfilesService.ProfilesS
                 ProfileEntry().apply {
                     name = p.name
                     color = p.color
+                    icon = p.icon
                     projectPaths = ProjectPaths.normalizeAll(p.projectPaths).toMutableList()
                 },
             )

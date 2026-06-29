@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Pre-commit hook: bump the PATCH version (x.y.PATCH -> x.y.(PATCH+1)) in build.gradle.kts and stage
+# it, so every commit carries a fresh patch version. (macOS/BSD sed.)
+#
+# Install:  cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+gradle="$repo_root/build.gradle.kts"
+[ -f "$gradle" ] || exit 0
+
+current="$(grep -oE 'version = "[0-9]+\.[0-9]+\.[0-9]+"' "$gradle" | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
+[ -n "$current" ] || exit 0
+
+IFS=. read -r major minor patch <<< "$current"
+new="${major}.${minor}.$((patch + 1))"
+
+sed -i '' "s/version = \"${current}\"/version = \"${new}\"/" "$gradle"
+git add "$gradle"
+echo "pre-commit: bumped version ${current} -> ${new}"

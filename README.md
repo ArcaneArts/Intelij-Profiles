@@ -20,13 +20,24 @@ configurations, indexes, branches and open files are all kept exactly as you lef
 
 - Group any number of projects into a profile.
 - One click switches the whole set: opens the profile's projects, closes the rest.
+- Give each profile a color and an icon — a built-in icon or your own emoji — shown in the toolbar.
 - Create a profile from the projects you already have open, or by picking folders.
-- Manage profiles — rename, add/remove projects, delete — under Settings > Tools > Profiles.
+- Manage profiles — rename, recolor, add/remove projects, delete — under Settings > Tools > Profiles.
 - Light on memory: only the active profile stays open.
 - Switch as fast as you like; it settles on your last pick.
 
-Works on the New UI (2024.2+) across the IntelliJ-based IDEs — IntelliJ IDEA, WebStorm, PyCharm,
-GoLand, and the rest.
+Works on the New UI, IntelliJ 2025.3.2 and newer, across the IntelliJ-based IDEs — IntelliJ IDEA,
+WebStorm, PyCharm, GoLand, and the rest.
+
+## Getting started
+
+1. Open the projects you want in a set, click the **Profiles** dropdown in the toolbar, and choose
+   **Save Current Windows as Profile**. Name it (say, "Work").
+2. Do the same for another set ("Home").
+3. Now switch: pick a profile from the dropdown and your windows swap to that set.
+
+No project open yet? Use **New Profile Workspace** on the Welcome screen to pick folders and open them
+as a profile. Fine-tune colors, icons and membership any time under **Settings > Tools > Profiles**.
 
 ## Install
 

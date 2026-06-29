@@ -1,6 +1,5 @@
 package art.arcane.profiles.engine
 
-import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.Logger
@@ -20,7 +19,7 @@ import java.nio.file.Path
  */
 internal object ProjectWindows {
 
-    private val LOG = Logger.getInstance("art.arcane.profiles.engine.ProjectWindows")
+    private val LOG = Logger.getInstance(ProjectWindows::class.java)
 
     /** Currently open, real (non-default, non-disposed) projects — the reconciler's ground truth. */
     fun liveProjects(): List<Project> =
@@ -30,6 +29,20 @@ internal object ProjectWindows {
     fun matches(target: Path, project: Project): Boolean {
         val base = project.basePath ?: return false
         return runCatching { canonicalKey(Path.of(base)) == canonicalKey(target) }.getOrDefault(false)
+    }
+
+    /** Canonical key of an open [project] (its folder real-path), or null if it has no base dir. */
+    fun keyOf(project: Project): String? =
+        project.basePath?.let { runCatching { canonicalKey(Path.of(it)) }.getOrNull() }
+
+    /** Live projects indexed by canonical key (first wins). Projects with no base dir are excluded. */
+    fun openByKey(): Map<String, Project> {
+        val map = LinkedHashMap<String, Project>()
+        for (project in liveProjects()) {
+            val key = keyOf(project) ?: continue
+            map.putIfAbsent(key, project)
+        }
+        return map
     }
 
     /**
@@ -42,10 +55,14 @@ internal object ProjectWindows {
             return it
         }
         return try {
-            // Suspend open: awaits full registration, is cancellable (no blocking bridge that would
-            // wedge a superseded switch), and forceOpenInNewFrame=true gives its own window without
-            // the platform picking a victim to close — safe because we already deduped above.
-            ProjectUtil.openOrImportAsync(path, OpenProjectTask { forceOpenInNewFrame = true })
+            // Version-stable open: the 3-arg primitive overload (Path, Project?, Boolean) does NOT
+            // bake a platform-version-specific OpenProjectTask constructor into our bytecode, so the
+            // plugin loads on 2025.3.2 through 2026.2+. It's blocking, so run it off the EDT.
+            // forceOpenInNewFrame=true gives its own window; we already deduped above so the platform
+            // never picks a victim to close.
+            withContext(Dispatchers.IO) {
+                ProjectUtil.openOrImport(path, null, true)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -75,7 +92,13 @@ internal object ProjectWindows {
     suspend fun focus(project: Project) {
         if (project.isDisposed) return
         withContext(Dispatchers.EDT) {
-            runCatching { ProjectUtil.focusProjectWindow(project, false) }
+            try {
+                ProjectUtil.focusProjectWindow(project, false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                LOG.warn("Profiles: focus failed for ${project.name}", e)
+            }
         }
     }
 }

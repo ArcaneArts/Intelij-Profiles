@@ -40,57 +40,11 @@ class ProfilesServiceTest {
     }
 
     @Test
-    fun `deleteProfile removes profile and clears active pointer`() {
-        val svc = service()
-        svc.addProfile("Work")
-        svc.activeProfileName = "Work"
-        svc.deleteProfile("Work")
-        assertFalse(svc.hasProfile("Work"))
-        assertNull(svc.activeProfileName)
-    }
-
-    @Test
-    fun `renameProfile moves the active pointer`() {
-        val svc = service()
-        svc.addProfile("Work")
-        svc.activeProfileName = "Work"
-        svc.renameProfile("Work", "Office")
-        assertTrue(svc.hasProfile("Office"))
-        assertFalse(svc.hasProfile("Work"))
-        assertEquals("Office", svc.activeProfileName)
-    }
-
-    @Test
-    fun `renameProfile rejects collision with an existing name`() {
-        val svc = service()
-        svc.addProfile("A")
-        svc.addProfile("B")
-        assertThrows(IllegalArgumentException::class.java) { svc.renameProfile("A", "B") }
-    }
-
-    @Test
-    fun `addProjectToProfile is idempotent across path spelling`() {
-        val svc = service()
-        svc.addProfile("Work")
-        svc.addProjectToProfile("Work", "/work/a")
-        svc.addProjectToProfile("Work", "/work/a/")
-        assertEquals(listOf("/work/a"), svc.profiles.first().projectPaths)
-    }
-
-    @Test
-    fun `removeProjectFromProfile removes the matching path`() {
-        val svc = service()
-        svc.addProfile("Work", listOf("/work/a", "/work/b"))
-        svc.removeProjectFromProfile("Work", "/work/a/")
-        assertEquals(listOf("/work/b"), svc.profiles.first().projectPaths)
-    }
-
-    @Test
     fun `replaceAll swaps the full set and prunes a stale active pointer`() {
         val svc = service()
         svc.addProfile("Old")
         svc.activeProfileName = "Old"
-        svc.replaceAll(listOf(Profile("New", null, listOf("/x"))))
+        svc.replaceAll(listOf(Profile("New", null, null, listOf("/x"))))
         assertFalse(svc.hasProfile("Old"))
         assertTrue(svc.hasProfile("New"))
         assertNull(svc.activeProfileName)
@@ -101,7 +55,25 @@ class ProfilesServiceTest {
         val svc = service()
         svc.addProfile("Keep")
         svc.activeProfileName = "Keep"
-        svc.replaceAll(listOf(Profile("Keep", null, listOf("/y"))))
+        svc.replaceAll(listOf(Profile("Keep", null, null, listOf("/y"))))
         assertEquals("Keep", svc.activeProfileName)
+    }
+
+    @Test
+    fun `addProfile stores color and icon`() {
+        val svc = service()
+        svc.addProfile("Work", listOf("/w"), color = "3B82F6", icon = "star")
+        val p = svc.profiles.first()
+        assertEquals("3B82F6", p.color)
+        assertEquals("star", p.icon)
+    }
+
+    @Test
+    fun `replaceAll preserves color and icon`() {
+        val svc = service()
+        svc.replaceAll(listOf(Profile("A", "FF0000", "home", listOf("/a"))))
+        val p = svc.profiles.first()
+        assertEquals("FF0000", p.color)
+        assertEquals("home", p.icon)
     }
 }

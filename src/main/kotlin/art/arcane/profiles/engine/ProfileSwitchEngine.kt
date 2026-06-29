@@ -40,7 +40,7 @@ import java.util.concurrent.atomic.AtomicLong
 @Service(Service.Level.APP)
 class ProfileSwitchEngine(private val scope: CoroutineScope) {
 
-    private val log = Logger.getInstance("art.arcane.profiles.engine.ProfileSwitchEngine")
+    private val log = Logger.getInstance(ProfileSwitchEngine::class.java)
 
     private data class SwitchRequest(val profile: Profile, val gen: Long)
 
@@ -101,21 +101,26 @@ class ProfileSwitchEngine(private val scope: CoroutineScope) {
     }
 
     private suspend fun reconcilePasses(profileName: String, targets: List<Path>) {
-        val primaryPath = targets.first()
-        repeat(MAX_PASSES) {
-            val open = ProjectWindows.liveProjects()
-            val toClose = open.filter { p -> targets.none { ProjectWindows.matches(it, p) } }
-            val secondary = targets.drop(1).filter { t -> open.none { ProjectWindows.matches(t, it) } }
-            val primaryOpen = open.firstOrNull { ProjectWindows.matches(primaryPath, it) }
+        // Map each target to its canonical key once (first spelling wins), preserving order.
+        val targetByKey = LinkedHashMap<String, Path>()
+        for (target in targets) targetByKey.putIfAbsent(canonicalKey(target), target)
+        val targetKeys = targetByKey.keys.toList()
+        val primaryKey = targetKeys.first()
+        val primaryPath = targetByKey.getValue(primaryKey)
 
-            if (primaryOpen != null && toClose.isEmpty() && secondary.isEmpty()) {
-                ProjectWindows.focus(primaryOpen)
+        repeat(MAX_PASSES) {
+            val openByKey = ProjectWindows.openByKey()
+            val plan = ReconcilePlanner.plan(targetKeys, openByKey.keys)
+            val nullKeyExtras = ProjectWindows.liveProjects().filter { ProjectWindows.keyOf(it) == null }
+
+            if (plan.converged && nullKeyExtras.isEmpty()) {
+                openByKey[primaryKey]?.let { ProjectWindows.focus(it) }
                 return // converged
             }
 
             // PHASE A — open/focus the primary FIRST. If it can't open, leave every window untouched
             // this pass (never close anything without the new primary live) and retry next pass.
-            val primary = primaryOpen ?: ProjectWindows.openInOwnFrame(primaryPath)
+            val primary = openByKey[primaryKey] ?: ProjectWindows.openInOwnFrame(primaryPath)
             if (primary == null || primary.isDisposed) {
                 log.warn("Profiles: could not open primary $primaryPath; leaving windows unchanged this pass")
                 return@repeat
@@ -125,16 +130,17 @@ class ProfileSwitchEngine(private val scope: CoroutineScope) {
             // PHASES B-D under a progress indicator hosted on the PRIMARY (a surviving target), so the
             // progress can never abort its own switch by hosting on a project we're about to close.
             withBackgroundProgress(primary, "Switching to $profileName", false) {
-                closeExtrasAndOpenRest(targets, primary)
+                applyPass(targetByKey, primaryKey, primary)
             }
         }
 
         // Surface a non-converged end state instead of failing silently.
-        val open = ProjectWindows.liveProjects()
-        val stillMissing = targets.filter { t -> open.none { ProjectWindows.matches(t, it) } }
-        val stillExtra = open.filter { p -> targets.none { ProjectWindows.matches(it, p) } }
+        val openByKey = ProjectWindows.openByKey()
+        val stillMissing = targetKeys.filter { it !in openByKey }
+        val stillExtra = openByKey.keys.filter { it !in targetByKey } +
+            ProjectWindows.liveProjects().filter { ProjectWindows.keyOf(it) == null }.map { it.name }
         if (stillMissing.isNotEmpty() || stillExtra.isNotEmpty()) {
-            log.warn("Profiles: '$profileName' not converged in $MAX_PASSES passes; missing=$stillMissing extras=${stillExtra.map { it.name }}")
+            log.warn("Profiles: '$profileName' not converged in $MAX_PASSES passes; missing=$stillMissing extras=$stillExtra")
             notify(
                 "Profile \"$profileName\" did not fully apply: ${stillMissing.size} not opened, ${stillExtra.size} not closed.",
                 NotificationType.WARNING,
@@ -142,26 +148,29 @@ class ProfileSwitchEngine(private val scope: CoroutineScope) {
         }
     }
 
-    private suspend fun closeExtrasAndOpenRest(targets: List<Path>, primary: Project) {
+    private suspend fun applyPass(targetByKey: Map<String, Path>, primaryKey: String, primary: Project) {
         // Re-derive from fresh ground truth (Phase A may have changed the open set).
-        val open = ProjectWindows.liveProjects()
-        // Identity guard (p !== primary): never close the project we just opened/focused as primary,
-        // even if path-matching disagrees — the hard stop against "switch closes everything".
-        val toClose = open.filter { p -> p !== primary && targets.none { ProjectWindows.matches(it, p) } }
-        val secondary = targets.drop(1).filter { t -> open.none { ProjectWindows.matches(t, it) } }
+        val openByKey = ProjectWindows.openByKey()
+        val plan = ReconcilePlanner.plan(targetByKey.keys.toList(), openByKey.keys)
 
-        // PHASE B — close extras (RAM-light). Interruptible + per-close timeout so a hung close can't
-        // wedge the reconciler; the next pass re-derives ground truth and retries any unfinished close.
-        for (project in toClose) {
-            if (project.isDisposed) continue
+        // PHASE B — close extras: keyed extras plus any project with no identity, but NEVER the
+        // primary (identity guard — the hard stop against "switch closes everything"). Interruptible
+        // + per-close timeout so a hung close can't wedge the reconciler; the next pass retries.
+        val extras = (plan.toCloseKeys.mapNotNull { openByKey[it] } +
+            ProjectWindows.liveProjects().filter { ProjectWindows.keyOf(it) == null }).distinct()
+        for (project in extras) {
+            if (project === primary || project.isDisposed) continue
             withTimeoutOrNull(CLOSE_TIMEOUT_MS) { ProjectWindows.closeProject(project) }
                 ?: log.warn("Profiles: close timed out for ${project.name}; continuing")
         }
-        // PHASE C — open remaining targets, re-checking ground truth (a prior await may have opened one).
-        for (target in secondary) {
-            if (ProjectWindows.liveProjects().any { ProjectWindows.matches(target, it) }) continue
-            ProjectWindows.openInOwnFrame(target)
+
+        // PHASE C — open the remaining targets, re-checking ground truth (a prior await may have opened one).
+        for (key in plan.toOpenKeys) {
+            if (key == primaryKey) continue
+            if (ProjectWindows.openByKey().containsKey(key)) continue
+            targetByKey[key]?.let { ProjectWindows.openInOwnFrame(it) }
         }
+
         // PHASE D — settle focus on the primary once.
         if (!primary.isDisposed) ProjectWindows.focus(primary)
     }

@@ -26,8 +26,11 @@
 - Warning notification when a profile references project paths that no longer exist on disk.
 - Pure path-normalization helper (`ProjectPaths`) with unit tests; `ProfilesService` CRUD unit tests.
 
+- Per-profile color and icon (a built-in icon or a typed emoji), shown in the toolbar and the
+  dropdown.
+- Empty-profile guard: switching to a profile with no (existing) projects leaves your open windows
+  unchanged and explains, instead of closing everything; creating an empty profile asks first.
+
 ### Notes
 - Platform-level plugin (depends only on `com.intellij.modules.platform`); loads in IntelliJ IDEA,
-  WebStorm, PyCharm, GoLand, etc. `sinceBuild = 242` (2024.2+).
-- Hide strategy is pluggable (`WindowVisibilityStrategy`): default fully hides windows; an iconify
-  strategy is available as a macOS-ergonomics fallback.
+  WebStorm, PyCharm, GoLand, etc. `sinceBuild = 253` (2025.3.2+).

@@ -32,6 +32,19 @@ object ProfileCreation {
         val chosen = FileChooser.chooseFiles(descriptor, project, null)
         val paths = chosen.map { it.path }
 
+        if (paths.isEmpty()) {
+            // Guard against accidentally making an empty profile that has nothing to switch to.
+            val createAnyway = Messages.showYesNoDialog(
+                project,
+                "No folders were selected. Create an empty profile \"$name\" anyway? " +
+                    "You can add projects later via Manage Profiles.",
+                "Empty Profile",
+                Messages.getQuestionIcon(),
+            ) == Messages.YES
+            if (createAnyway) service.addProfile(name, paths)
+            return
+        }
+
         val profile = service.addProfile(name, paths)
         // Open the new profile's projects immediately (requestSwitch also refreshes the toolbar label).
         ProfileSwitchEngine.getInstance().requestSwitch(profile)

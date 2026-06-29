@@ -6,7 +6,7 @@ import org.junit.Test
 import java.nio.file.Files
 import java.nio.file.Path
 
-class SwitchPlanTest {
+class TargetResolverTest {
 
     @Test
     fun `resolve dedups by canonical key and preserves order`() {

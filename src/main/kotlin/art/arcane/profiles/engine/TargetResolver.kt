@@ -13,7 +13,7 @@ internal fun canonicalKey(path: Path): String =
         path.toRealPath().toString()
     } catch (e: Exception) {
         // Folder may not exist (deleted on disk) — fall back to a normalized absolute spelling.
-        path.toAbsolutePath().normalize().toString().trimEnd('/')
+        path.toAbsolutePath().normalize().toString().trimEnd('/', '\\')
     }
 
 /** Result of resolving a profile's raw stored paths against the filesystem. */

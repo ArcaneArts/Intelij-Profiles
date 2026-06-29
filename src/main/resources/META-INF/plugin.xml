@@ -26,6 +26,7 @@
         <ul>
           <li>Group any number of projects into a profile.</li>
           <li>One click switches the whole set: opens the profile's projects, closes the rest.</li>
+          <li>Give each profile a color and an icon (a built-in icon or your own emoji), shown in the toolbar.</li>
           <li>Create a profile from the projects you already have open, or by picking folders.</li>
           <li>Manage profiles &mdash; rename, add or remove projects, delete &mdash; under Settings &gt;
           Tools &gt; Profiles.</li>
@@ -47,7 +48,7 @@
     <!-- Platform-level: loads in IDEA, WebStorm, PyCharm, GoLand, etc. -->
     <depends>com.intellij.modules.platform</depends>
 
-    <extensions defaultExtensionPointId="com.intellij">
+    <extensions defaultExtensionNs="com.intellij">
         <applicationConfigurable
                 parentId="tools"
                 id="art.arcane.profiles.settings"
