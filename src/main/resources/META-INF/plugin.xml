@@ -1,0 +1,52 @@
+<idea-plugin>
+    <id>art.arcane.profiles</id>
+    <name>Profiles</name>
+    <vendor email="psycho@arcane.art" url="https://arcane.art">Arcane Arts</vendor>
+
+    <description><![CDATA[
+        <p>Switch between named sets of projects (<b>Profiles</b>) straight from the main toolbar,
+        next to the Project and Branch widgets.</p>
+        <p>A Profile is a named set of <i>real</i> IntelliJ projects. Selecting a profile makes the set
+        of open windows become exactly that profile's projects — opening the ones not open and closing
+        the ones not in the profile, each in its own window. Because these are the real projects (never
+        merged), run configurations, indexes, open files, and branch state all come along for free.
+        Closing inactive projects keeps memory use low, and rapid switching settles on your last pick.</p>
+    ]]></description>
+
+    <!-- Platform-level: loads in IDEA, WebStorm, PyCharm, GoLand, etc. -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionPointId="com.intellij">
+        <applicationConfigurable
+                parentId="tools"
+                id="art.arcane.profiles.settings"
+                displayName="Profiles"
+                instance="art.arcane.profiles.ui.ProfilesConfigurable"/>
+        <notificationGroup id="Profiles" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <group id="art.arcane.profiles.ProfileWidgetGroup">
+            <action id="art.arcane.profiles.ProfileWidget"
+                    class="art.arcane.profiles.toolbar.ProfileToolbarWidgetAction"
+                    icon="AllIcons.General.User"/>
+            <!--
+              MainToolbarGeneralActionsGroup is platform-defined and always present,
+              so anchoring before it places this widget right after the Project and
+              Branch widgets in the new-UI main toolbar, portably across IDEs.
+            -->
+            <add-to-group group-id="MainToolbarLeft"
+                          anchor="before"
+                          relative-to-action="MainToolbarGeneralActionsGroup"/>
+        </group>
+
+        <!-- Welcome-screen button: create a profile workspace when no project is open. -->
+        <action id="art.arcane.profiles.NewProfileWorkspace"
+                class="art.arcane.profiles.actions.NewProfileWorkspaceAction"
+                text="New Profile Workspace…"
+                description="Pick several project folders and open them as a new profile"
+                icon="AllIcons.General.User">
+            <add-to-group group-id="WelcomeScreen.QuickStart" anchor="first"/>
+        </action>
+    </actions>
+</idea-plugin>
