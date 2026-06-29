@@ -14,7 +14,6 @@ import com.intellij.platform.ide.progress.withBackgroundProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterNotNull
@@ -34,6 +33,9 @@ import java.util.concurrent.atomic.AtomicLong
  * loops until converged. Rapid switching coalesces to the last pick (StateFlow + collectLatest) and
  * cancels the superseded pass. The primary is opened before anything is closed, so the open-window
  * count never hits zero (no IDE quit / Welcome flash); if the primary can't open, nothing is closed.
+ *
+ * Switching to an EMPTY profile (no projects, or none that still exist) leaves the open windows
+ * unchanged and notifies — it never closes everything to nothing.
  */
 @Service(Service.Level.APP)
 class ProfileSwitchEngine(private val scope: CoroutineScope) {
@@ -72,22 +74,26 @@ class ProfileSwitchEngine(private val scope: CoroutineScope) {
         val resolved = withContext(Dispatchers.IO) {
             TargetResolver.resolve(profile.projectPaths) { Files.isDirectory(it) }
         }
-        if (resolved.missing.isNotEmpty()) notifyMissing(profile.name, resolved.missing)
 
         val targets = resolved.targets
         if (targets.isEmpty()) {
-            if (profile.projectPaths.isEmpty()) {
-                // Genuinely empty profile → close everything (intentional Welcome screen).
-                withContext(NonCancellable) { closeAll() }
-                setActive(profile.name)
+            // An empty profile (or one whose paths are all gone) must NOT close your open windows —
+            // switching to "nothing" and emptying the IDE is never useful. Leave the windows as they
+            // are and explain.
+            val why = if (profile.projectPaths.isEmpty()) {
+                "has no projects"
             } else {
-                notify(
-                    "Profile \"${profile.name}\": none of its project paths exist on disk; windows left unchanged.",
-                    NotificationType.WARNING,
-                )
+                "has no projects that still exist on disk"
             }
+            notify(
+                "Profile \"${profile.name}\" $why — nothing to switch to. Your open projects were left " +
+                    "unchanged; add projects via the Profiles dropdown → Manage Profiles.",
+                NotificationType.WARNING,
+            )
             return
         }
+
+        if (resolved.missing.isNotEmpty()) notifyMissing(profile.name, resolved.missing)
 
         // Commit the active-profile label only now that we have a real target set to apply.
         setActive(profile.name)
@@ -139,7 +145,9 @@ class ProfileSwitchEngine(private val scope: CoroutineScope) {
     private suspend fun closeExtrasAndOpenRest(targets: List<Path>, primary: Project) {
         // Re-derive from fresh ground truth (Phase A may have changed the open set).
         val open = ProjectWindows.liveProjects()
-        val toClose = open.filter { p -> targets.none { ProjectWindows.matches(it, p) } }
+        // Identity guard (p !== primary): never close the project we just opened/focused as primary,
+        // even if path-matching disagrees — the hard stop against "switch closes everything".
+        val toClose = open.filter { p -> p !== primary && targets.none { ProjectWindows.matches(it, p) } }
         val secondary = targets.drop(1).filter { t -> open.none { ProjectWindows.matches(t, it) } }
 
         // PHASE B — close extras (RAM-light). Interruptible + per-close timeout so a hung close can't
@@ -156,12 +164,6 @@ class ProfileSwitchEngine(private val scope: CoroutineScope) {
         }
         // PHASE D — settle focus on the primary once.
         if (!primary.isDisposed) ProjectWindows.focus(primary)
-    }
-
-    private suspend fun closeAll() {
-        for (project in ProjectWindows.liveProjects()) {
-            ProjectWindows.closeProject(project)
-        }
     }
 
     private fun setActive(profileName: String) {

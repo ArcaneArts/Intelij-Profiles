@@ -4,14 +4,45 @@
     <vendor email="psycho@arcane.art" url="https://arcane.art">Arcane Arts</vendor>
 
     <description><![CDATA[
-        <p>Switch between named sets of projects (<b>Profiles</b>) straight from the main toolbar,
-        next to the Project and Branch widgets.</p>
-        <p>A Profile is a named set of <i>real</i> IntelliJ projects. Selecting a profile makes the set
-        of open windows become exactly that profile's projects — opening the ones not open and closing
-        the ones not in the profile, each in its own window. Because these are the real projects (never
-        merged), run configurations, indexes, open files, and branch state all come along for free.
-        Closing inactive projects keeps memory use low, and rapid switching settles on your last pick.</p>
+        <p>Group your projects into named sets &mdash; Work, Home, a client, a side project &mdash; or whatever you want to name them, and
+        switch between them from one dropdown in the main toolbar. Pick a profile, and it opens that
+        profile's projects, each in its own window, and closes the ones that aren't in it, so your open
+        windows always match whatever you're working on. &mdash; it uses the project tabs feature in your IDE.</p>
+
+        <p>It's a profile switcher in the plain sense: many projects per profile, and you switch to them
+        by switching profiles. These are your real, separate projects &mdash; never merged into one
+        window &mdash; so run configurations, indexes, branches and open files are all kept exactly as
+        you left them.</p>
+
+        <p><b>Where you use it</b></p>
+        <ul>
+          <li><b>In the editor</b> &mdash; the Profiles dropdown sits in the main toolbar, next to the
+          project and branch widgets.</li>
+          <li><b>On the Welcome screen</b> &mdash; a "New Profile Workspace" button builds a profile and
+          opens its projects before you've opened anything.</li>
+        </ul>
+
+        <p><b>Features</b></p>
+        <ul>
+          <li>Group any number of projects into a profile.</li>
+          <li>One click switches the whole set: opens the profile's projects, closes the rest.</li>
+          <li>Create a profile from the projects you already have open, or by picking folders.</li>
+          <li>Manage profiles &mdash; rename, add or remove projects, delete &mdash; under Settings &gt;
+          Tools &gt; Profiles.</li>
+          <li>Light on memory: only the active profile stays open.</li>
+        </ul>
+
+        <p>Open source under GPL-3.0 &mdash;
+        <a href="https://github.com/ArcaneArts/Intelij-Profiles">github.com/ArcaneArts/Intelij-Profiles</a>.</p>
     ]]></description>
+
+    <change-notes><![CDATA[
+        <ul>
+          <li>Profiles dropdown in the main toolbar and a "New Profile Workspace" button on the Welcome screen.</li>
+          <li>Switch a profile to open its projects and close the rest, in one click.</li>
+          <li>Create profiles from your open projects or by picking folders; manage them in Settings.</li>
+        </ul>
+    ]]></change-notes>
 
     <!-- Platform-level: loads in IDEA, WebStorm, PyCharm, GoLand, etc. -->
     <depends>com.intellij.modules.platform</depends>

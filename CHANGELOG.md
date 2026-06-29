@@ -2,6 +2,8 @@
 
 ## x.x.x
 
+## 1.0.1 - 2026-06-29
+
 ### Added
 - Profiles dropdown in the new-UI main toolbar (next to the Project and Branch widgets), built on
   `ExpandableComboAction` and registered in `MainToolbarLeft`.
