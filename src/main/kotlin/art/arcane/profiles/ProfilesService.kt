@@ -85,6 +85,46 @@ class ProfilesService : SimplePersistentStateComponent<ProfilesService.ProfilesS
         return "$prefix $i"
     }
 
+    /**
+     * Replace one profile's project paths (normalized/deduped) in place. Returns false if no profile
+     * by that name exists. Used by "Update active profile from open windows".
+     */
+    fun updateProfilePaths(name: String, paths: List<String>): Boolean {
+        val entry = findEntry(name) ?: return false
+        entry.projectPaths = ProjectPaths.normalizeAll(paths).toMutableList()
+        state.bump()
+        return true
+    }
+
+    /**
+     * Add [incoming] profiles, merging into any existing same-named profile (adding only paths it
+     * doesn't already have) rather than duplicating. Returns (added, merged) counts. Used by the
+     * "Create Profiles from Folder" importer.
+     */
+    fun importMerge(incoming: List<Profile>): ImportResult {
+        var added = 0
+        var merged = 0
+        for (p in incoming) {
+            if (p.name.isBlank()) continue
+            val existing = findEntry(p.name)
+            if (existing == null) {
+                addProfile(p.name, p.projectPaths, p.color, p.icon)
+                added++
+            } else {
+                val current = ProjectPaths.normalizeAll(existing.projectPaths)
+                val toAdd = ProjectPaths.normalizeAll(p.projectPaths).filter { it !in current }
+                if (toAdd.isNotEmpty()) {
+                    existing.projectPaths = (current + toAdd).toMutableList()
+                    state.bump()
+                }
+                merged++
+            }
+        }
+        return ImportResult(added, merged)
+    }
+
+    data class ImportResult(val added: Int, val merged: Int)
+
     /** Replace the entire profile set (used by the settings page on Apply). */
     fun replaceAll(newProfiles: List<Profile>) {
         state.profiles.clear()

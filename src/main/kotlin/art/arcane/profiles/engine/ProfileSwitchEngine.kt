@@ -1,9 +1,9 @@
 package art.arcane.profiles.engine
 
+import art.arcane.profiles.Notifications
 import art.arcane.profiles.ProfilesService
 import art.arcane.profiles.model.Profile
 import com.intellij.ide.ActivityTracker
-import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
@@ -190,12 +190,7 @@ class ProfileSwitchEngine(private val scope: CoroutineScope) {
         )
     }
 
-    private fun notify(content: String, type: NotificationType) {
-        NotificationGroupManager.getInstance()
-            .getNotificationGroup("Profiles")
-            .createNotification(content, type)
-            .notify(null)
-    }
+    private fun notify(content: String, type: NotificationType) = Notifications.show(content, type)
 
     companion object {
         private const val MAX_PASSES = 3

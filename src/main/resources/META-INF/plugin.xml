@@ -80,5 +80,30 @@
                 icon="AllIcons.General.User">
             <add-to-group group-id="WelcomeScreen.QuickStart" anchor="first"/>
         </action>
+
+        <!--
+          Keybindable, menu-free actions: they have no default shortcut and belong to no group, so
+          they appear only in Find Action and Settings > Keymap for the user to bind.
+        -->
+        <action id="art.arcane.profiles.SwitchProfile"
+                class="art.arcane.profiles.actions.SwitchProfileAction"
+                text="Switch Profile…"
+                description="Pick a profile to switch to"
+                icon="AllIcons.General.User"/>
+        <action id="art.arcane.profiles.NextProfile"
+                class="art.arcane.profiles.actions.NextProfileAction"
+                text="Switch to Next Profile"
+                description="Switch to the next profile in the list"
+                icon="AllIcons.Actions.Forward"/>
+        <action id="art.arcane.profiles.PreviousProfile"
+                class="art.arcane.profiles.actions.PreviousProfileAction"
+                text="Switch to Previous Profile"
+                description="Switch to the previous profile in the list"
+                icon="AllIcons.Actions.Back"/>
+        <action id="art.arcane.profiles.ImportProfilesFromFolder"
+                class="art.arcane.profiles.actions.ImportProfilesFromFolderAction"
+                text="Create Profiles from Folder…"
+                description="Turn a folder of org/repo subfolders into profiles"
+                icon="AllIcons.Nodes.Folder"/>
     </actions>
 </idea-plugin>

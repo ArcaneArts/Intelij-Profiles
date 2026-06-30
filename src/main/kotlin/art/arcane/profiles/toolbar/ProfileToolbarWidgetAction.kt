@@ -1,10 +1,11 @@
 package art.arcane.profiles.toolbar
 
 import art.arcane.profiles.ProfilesService
-import art.arcane.profiles.engine.ProfileSwitchEngine
+import art.arcane.profiles.actions.ImportProfilesFromFolderAction
 import art.arcane.profiles.actions.NewProfileAction
 import art.arcane.profiles.actions.SaveCurrentAsProfileAction
-import art.arcane.profiles.model.Profile
+import art.arcane.profiles.actions.UpdateActiveProfileFromWindowsAction
+import art.arcane.profiles.ui.ProfilePopups
 import art.arcane.profiles.ui.ProfilePresentation
 import art.arcane.profiles.ui.ProfilesConfigurable
 import com.intellij.icons.AllIcons
@@ -26,8 +27,8 @@ import javax.swing.JComponent
 
 /**
  * The Profiles dropdown in the new-UI main toolbar, beside the Project and Branch widgets. The
- * label reflects the active profile; the popup lists profiles to switch to plus the create/manage
- * actions.
+ * label reflects the active profile; the popup lists profiles to switch to (with project counts)
+ * plus the create/capture/import/manage actions.
  */
 class ProfileToolbarWidgetAction : ExpandableComboAction(), DumbAware {
 
@@ -55,26 +56,24 @@ class ProfileToolbarWidgetAction : ExpandableComboAction(), DumbAware {
     }
 
     override fun createPopup(event: AnActionEvent): JBPopup {
-        val service = ProfilesService.getInstance()
-        val active = service.activeProfileName
         val group = DefaultActionGroup()
 
-        val profiles = service.profiles
-        if (profiles.isEmpty()) {
-            group.add(DisabledHint("No profiles yet — save your open windows below"))
+        val switchActions = ProfilePopups.profileSwitchActions()
+        if (switchActions.isEmpty()) {
+            group.add(ProfilePopups.DisabledHint("No profiles yet — save your open windows below"))
         } else {
-            for (profile in profiles) {
-                group.add(SwitchToProfileAction(profile, profile.name == active))
-            }
+            switchActions.forEach(group::add)
         }
 
         group.addSeparator()
         group.add(SaveCurrentAsProfileAction())
+        group.add(UpdateActiveProfileFromWindowsAction())
         group.add(NewProfileAction())
+        group.add(ImportProfilesFromFolderAction())
         group.add(ManageProfilesAction())
 
         group.addSeparator()
-        group.add(DisabledHint("Profiles v${pluginVersion()}"))
+        group.add(ProfilePopups.DisabledHint("Profiles v${pluginVersion()}"))
 
         return JBPopupFactory.getInstance().createActionGroupPopup(
             "Profiles",
@@ -88,15 +87,6 @@ class ProfileToolbarWidgetAction : ExpandableComboAction(), DumbAware {
     private fun pluginVersion(): String =
         PluginManagerCore.getPlugin(PluginId.getId("art.arcane.profiles"))?.version ?: "?"
 
-    private class SwitchToProfileAction(private val profile: Profile, active: Boolean) : AnAction(
-        ProfilePresentation.label(profile) + if (active) " (active)" else "",
-        "Switch to \"${profile.name}\"",
-        ProfilePresentation.icon(profile),
-    ), DumbAware {
-        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
-        override fun actionPerformed(e: AnActionEvent) = ProfileSwitchEngine.getInstance().requestSwitch(profile)
-    }
-
     private class ManageProfilesAction : AnAction(
         "Manage Profiles…",
         "Open profile settings",
@@ -106,13 +96,5 @@ class ProfileToolbarWidgetAction : ExpandableComboAction(), DumbAware {
         override fun actionPerformed(e: AnActionEvent) {
             ShowSettingsUtil.getInstance().showSettingsDialog(e.project, ProfilesConfigurable::class.java)
         }
-    }
-
-    private class DisabledHint(text: String) : AnAction(text), DumbAware {
-        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
-        override fun update(e: AnActionEvent) {
-            e.presentation.isEnabled = false
-        }
-        override fun actionPerformed(e: AnActionEvent) = Unit
     }
 }
