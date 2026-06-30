@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "art.arcane"
-version = "1.0.3"
+version = "1.0.4"
 
 dependencies {
     intellijPlatform {
@@ -57,6 +57,15 @@ kotlin {
     jvmToolchain(21)
 }
 
+// Inject the build version into a resource the toolbar reads at runtime (for the dropdown's version
+// footer), so we don't call any plugin-descriptor API to learn our own version — those lookups
+// (PluginManagerCore.getPlugin / PluginManager.findEnabledPlugin) are @Internal on newer platforms.
+tasks.processResources {
+    filesMatching("profiles-build.properties") {
+        expand("version" to project.version.toString())
+    }
+}
+
 // Builds the installable plugin zip and copies it into OUT/ at the project root.
 tasks.register<Copy>("buildOut") {
     group = "build"
@@ -71,29 +80,40 @@ tasks.register<Copy>("buildOut") {
     }
 }
 
-// Build the plugin and install it straight into the latest local IntelliJ IDEA. Restart the IDE
-// (or Settings > Plugins, it'll be there) to load the new build.
+// Build the plugin and install it straight into local IntelliJ IDEA install(s). Targets ALL detected
+// IDEA config dirs by default (Ultimate + Community) so it lands in whichever IDE you actually run;
+// pass -Pide=2025.3 (a substring of the config-dir name) to target just one. You MUST fully quit and
+// reopen the IDE afterward (copied plugins are only picked up on startup).
 tasks.register("deployToIde") {
     group = "build"
-    description = "Build and install the plugin into the latest local IntelliJ IDEA (restart to load)."
+    description = "Build and install the plugin into local IntelliJ IDEA install(s). -Pide=2025.3 targets one. Restart the IDE to load."
     dependsOn("buildPlugin")
     doLast {
         val jetbrains = file("${System.getProperty("user.home")}/Library/Application Support/JetBrains")
-        val ideDir = jetbrains.listFiles()
-            ?.filter { it.isDirectory && it.name.startsWith("IntelliJIdea") }
-            ?.maxByOrNull { it.name }
-            ?: throw GradleException("No IntelliJ IDEA config directory found under $jetbrains")
-        val pluginsDir = ideDir.resolve("plugins").apply { mkdirs() }
-        val zip = layout.buildDirectory.dir("distributions").get().asFile
-            .listFiles { f -> f.extension == "zip" }
-            ?.maxByOrNull { it.lastModified() }
-            ?: throw GradleException("No plugin zip found in build/distributions")
-        delete(pluginsDir.resolve("intellij-profiles"))
-        copy {
-            from(zipTree(zip))
-            into(pluginsDir)
+        val filter = (project.findProperty("ide") as String?)?.lowercase()
+        val ideDirs = (jetbrains.listFiles() ?: emptyArray())
+            .filter { it.isDirectory && (it.name.startsWith("IntelliJIdea") || it.name.startsWith("IdeaIC")) }
+            .filter { filter == null || it.name.lowercase().contains(filter) }
+            .sortedBy { it.name }
+        if (ideDirs.isEmpty()) {
+            throw GradleException(
+                "No IntelliJ IDEA config dirs found under $jetbrains" +
+                    (filter?.let { " matching '$it'" } ?: "") + ".",
+            )
         }
-        logger.lifecycle("Deployed ${zip.name} -> ${pluginsDir}/intellij-profiles")
-        logger.lifecycle("Restart ${ideDir.name} to load the new build.")
+        val zip = layout.buildDirectory.dir("distributions").get().asFile.resolve("${project.name}-$version.zip")
+        if (!zip.exists()) throw GradleException("Plugin zip not found: $zip (run buildPlugin first)")
+
+        for (ideDir in ideDirs) {
+            val pluginsDir = ideDir.resolve("plugins").apply { mkdirs() }
+            delete(pluginsDir.resolve(project.name))
+            copy {
+                from(zipTree(zip))
+                into(pluginsDir)
+            }
+            logger.lifecycle("Deployed ${zip.name} -> $pluginsDir/${project.name}")
+        }
+        logger.lifecycle("Installed v$version into ${ideDirs.size} IDE(s): ${ideDirs.joinToString { it.name }}.")
+        logger.lifecycle("Fully QUIT and reopen the IDE (not just 'Restart' from a dialog) to load the new build.")
     }
 }

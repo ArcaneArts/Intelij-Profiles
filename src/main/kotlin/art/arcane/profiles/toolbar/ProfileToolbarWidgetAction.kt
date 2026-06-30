@@ -9,26 +9,23 @@ import art.arcane.profiles.ui.ProfilePopups
 import art.arcane.profiles.ui.ProfilePresentation
 import art.arcane.profiles.ui.ProfilesConfigurable
 import com.intellij.icons.AllIcons
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
-import com.intellij.openapi.actionSystem.Presentation
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.wm.impl.ExpandableComboAction
-import com.intellij.openapi.wm.impl.ToolbarComboButton
-import javax.swing.Icon
-import javax.swing.JComponent
+import java.util.Properties
 
 /**
  * The Profiles dropdown in the new-UI main toolbar, beside the Project and Branch widgets. The
- * label reflects the active profile; the popup lists profiles to switch to (with project counts)
- * plus the create/capture/import/manage actions.
+ * label/icon reflect the active profile (set in [update] on the presentation; the base
+ * [ExpandableComboAction] renders them onto the combo, so no custom-component override is needed).
+ * The popup lists profiles to switch to (with project counts) plus the create/capture/import/manage
+ * actions.
  */
 class ProfileToolbarWidgetAction : ExpandableComboAction(), DumbAware {
 
@@ -44,15 +41,6 @@ class ProfileToolbarWidgetAction : ExpandableComboAction(), DumbAware {
         e.presentation.icon = active?.let { ProfilePresentation.icon(it) } ?: AllIcons.General.User
         e.presentation.description =
             if (activeName != null) "Active profile: $activeName" else "Switch project profiles"
-    }
-
-    override fun updateCustomComponent(component: JComponent, presentation: Presentation) {
-        super.updateCustomComponent(component, presentation)
-        (component as? ToolbarComboButton)?.apply {
-            text = presentation.text
-            toolTipText = presentation.description
-            leftIcons = listOfNotNull<Icon>(presentation.icon)
-        }
     }
 
     override fun createPopup(event: AnActionEvent): JBPopup {
@@ -84,8 +72,14 @@ class ProfileToolbarWidgetAction : ExpandableComboAction(), DumbAware {
         )
     }
 
+    // Read our own version from a build-filtered resource rather than a plugin-descriptor lookup
+    // (those APIs are @Internal on newer platforms); see processResources in build.gradle.kts.
     private fun pluginVersion(): String =
-        PluginManagerCore.getPlugin(PluginId.getId("art.arcane.profiles"))?.version ?: "?"
+        runCatching {
+            javaClass.getResourceAsStream("/profiles-build.properties")?.use { stream ->
+                Properties().apply { load(stream) }.getProperty("version")
+            }
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "?"
 
     private class ManageProfilesAction : AnAction(
         "Manage Profiles…",

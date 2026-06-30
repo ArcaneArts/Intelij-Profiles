@@ -2,6 +2,33 @@
 
 ## x.x.x
 
+### Added
+- "Create Profiles from Folder" — scan a root folder (e.g. `~/Developer/RemoteGit`) and turn its
+  org/repo tree into profiles in one pass: each subfolder becomes a profile, its subfolders become
+  the projects. A checkbox tree lets you prune anything you don't want; real-looking repos (have
+  `.git`/`.idea`/a build file) start checked, tooling/build folders start unchecked, and a folder
+  with no real projects starts unchecked. Same-named profiles merge (new paths added) instead of
+  duplicating. Available from the dropdown and the settings page. Backed by a pure, unit-tested
+  `engine/FolderScanner`.
+- Quick-switch and cycling actions (no default shortcuts — bind them in Settings → Keymap):
+  "Switch Profile…" (speed-search popup), "Switch to Next Profile", "Switch to Previous Profile".
+- "Update Active Profile from Open Windows" — re-capture your currently open windows into the active
+  profile without visiting settings.
+- Project counts in the dropdown rows ("Name — N projects").
+- Settings page: reorder profiles (move up/down), duplicate a profile, and "Remove missing" to drop
+  project paths whose folder no longer exists (missing paths are flagged in the list).
+- Export / Import profiles as JSON (settings page) for backup or moving between machines; round-trip
+  covered by `io/ProfilesJson` unit tests.
+
+### Changed
+- Shared the profile-switch popup rows between the toolbar dropdown and the new quick-switch action
+  (`ui/ProfilePopups`); unified user-facing balloons behind a single `Notifications` helper.
+- Reduced internal-API usage flagged by the Marketplace verifier to a single, unavoidable call.
+  Dropped the redundant `updateCustomComponent` override (the base `ExpandableComboAction` already
+  renders text/icon from the presentation) and now read the plugin's own version from a build-filtered
+  resource instead of a `@Internal` plugin-descriptor lookup. Only `forceCloseProjectAsync` (the
+  veto-free project close, which has no public equivalent) remains, on all supported builds.
+
 ## 1.0.1 - 2026-06-29
 
 ### Added

@@ -28,8 +28,14 @@
           <li>One click switches the whole set: opens the profile's projects, closes the rest.</li>
           <li>Give each profile a color and an icon (a built-in icon or your own emoji), shown in the toolbar.</li>
           <li>Create a profile from the projects you already have open, or by picking folders.</li>
-          <li>Manage profiles &mdash; rename, add or remove projects, delete &mdash; under Settings &gt;
-          Tools &gt; Profiles.</li>
+          <li><b>Bulk import</b> &mdash; point at a folder of repos and create a profile per subfolder,
+          with checkboxes to pick exactly what to include.</li>
+          <li><b>Keyboard</b> &mdash; bind shortcuts for "Switch Profile" (a searchable picker) and
+          next/previous profile.</li>
+          <li>Re-capture your open windows into the active profile in one click; see each profile's
+          project count in the dropdown.</li>
+          <li>Manage profiles &mdash; reorder, duplicate, rename, add/remove projects, clean up missing
+          folders, and export/import as JSON &mdash; under Settings &gt; Tools &gt; Profiles.</li>
           <li>Light on memory: only the active profile stays open.</li>
         </ul>
 
@@ -39,9 +45,11 @@
 
     <change-notes><![CDATA[
         <ul>
-          <li>Profiles dropdown in the main toolbar and a "New Profile Workspace" button on the Welcome screen.</li>
-          <li>Switch a profile to open its projects and close the rest, in one click.</li>
-          <li>Create profiles from your open projects or by picking folders; manage them in Settings.</li>
+          <li>New: create profiles in bulk from a folder of repos &mdash; one profile per subfolder,
+          with checkboxes to choose what to include.</li>
+          <li>New: keybindable "Switch Profile" picker plus next/previous-profile actions.</li>
+          <li>New: project counts in the dropdown; re-capture open windows into the active profile.</li>
+          <li>Settings: reorder, duplicate, remove missing folders, and export/import profiles as JSON.</li>
         </ul>
     ]]></change-notes>
 
