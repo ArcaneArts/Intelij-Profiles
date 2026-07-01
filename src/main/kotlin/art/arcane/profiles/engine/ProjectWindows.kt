@@ -84,6 +84,15 @@ internal object ProjectWindows : ProjectWindowGateway {
         }
         return try {
             val task = OpenProjectTask.build().withForceOpenInNewFrame(true)
+            val direct = try {
+                ProjectManagerEx.getInstanceEx().openProjectAsync(path, task)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                LOG.debug("Profiles: direct project open failed for $path; falling back to open/import", e)
+                null
+            }
+            if (direct != null) return IdeProjectHandle(direct)
             ProjectUtil.openOrImportAsync(path, task)?.let(::IdeProjectHandle)
         } catch (e: CancellationException) {
             throw e

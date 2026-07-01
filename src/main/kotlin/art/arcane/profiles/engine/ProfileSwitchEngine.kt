@@ -343,8 +343,8 @@ class ProfileSwitchEngine {
     companion object {
         private const val MAX_PASSES = 3
         private const val CLOSE_TIMEOUT_MS = 30_000L
-        private const val CLOSE_BATCH_SIZE = 8
-        private const val OPEN_BATCH_SIZE = 4
+        private const val CLOSE_BATCH_SIZE = 32
+        private const val OPEN_BATCH_SIZE = 32
 
         @JvmStatic
         fun getInstance(): ProfileSwitchEngine = service()
