@@ -3,18 +3,14 @@ package art.arcane.profiles.engine
 import art.arcane.profiles.Notifications
 import art.arcane.profiles.ProfilesService
 import art.arcane.profiles.model.Profile
-import com.intellij.ide.ActivityTracker
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,7 +35,6 @@ internal data class ProfileSwitchDependencies(
     val notify: (String, NotificationType) -> Unit,
     val isApplicationDisposed: () -> Boolean,
     val pathExists: (Path) -> Boolean,
-    val markActivity: () -> Unit,
 ) {
     companion object {
         fun ide(): ProfileSwitchDependencies =
@@ -57,7 +52,6 @@ internal data class ProfileSwitchDependencies(
                 notify = Notifications::show,
                 isApplicationDisposed = { ApplicationManager.getApplication().isDisposed },
                 pathExists = { Files.isDirectory(it) },
-                markActivity = { ActivityTracker.getInstance().inc() },
             )
     }
 }
@@ -233,9 +227,8 @@ class ProfileSwitchEngine {
         val plan = ReconcilePlanner.plan(targetByKey.keys.toList(), openByKey.keys)
         val targetKeys = targetByKey.keys.toList()
 
-        // PHASE B — close extras: keyed extras plus any project with no identity, but NEVER the
-        // primary or any target. Interruptible + per-close timeout so a hung close can't wedge the
-        // reconciler; the next pass retries.
+        // PHASE B — close extras ONE AT A TIME. The platform never tears down frames in parallel;
+        // neither do we. Per-close timeout so a hung close can't wedge the reconciler.
         val extras = (plan.toCloseKeys.mapNotNull { openByKey[it] } +
             dependencies.windows.liveProjects().filter { dependencies.windows.keyOf(it) == null }).distinct()
         val extrasToClose = extras.filter { project ->
@@ -243,36 +236,22 @@ class ProfileSwitchEngine {
             val key = dependencies.windows.keyOf(project)
             key != primaryKey && (key == null || key !in targetByKey)
         }
-
-        for (chunk in extrasToClose.chunked(CLOSE_BATCH_SIZE)) {
+        for (project in extrasToClose) {
             if (!isCurrent(request)) return
-            coroutineScope {
-                chunk.map { project ->
-                    async {
-                        withTimeoutOrNull(CLOSE_TIMEOUT_MS) { dependencies.windows.closeProject(project) }
-                            ?: log.warn("Profiles: close timed out for ${project.name}; continuing")
-                    }
-                }.awaitAll()
-            }
+            withTimeoutOrNull(CLOSE_TIMEOUT_MS) { dependencies.windows.closeProject(project) }
+                ?: log.warn("Profiles: close timed out for ${project.name}; continuing")
             publishSwitchingSnapshot(request, profileName, targetKeys)
         }
 
-        // PHASE C — open remaining targets after old extras have been asked to close. This makes
-        // the visible transition feel like the new primary replaces the old profile instead of all
-        // target windows piling in before the old profile disappears.
+        // PHASE C — open remaining targets ONE AT A TIME. The gateway awaits each open's frame settle
+        // before returning, so frames/tabs are constructed sequentially (fixes the meshed-toolbar bug).
         val targetKeysToOpen = plan.toOpenKeys.filter { it != primaryKey }
-        for (chunk in targetKeysToOpen.chunked(OPEN_BATCH_SIZE)) {
+        for (key in targetKeysToOpen) {
             if (!isCurrent(request)) return
             val freshOpen = dependencies.windows.openByKey()
-            val paths = chunk.mapNotNull { key ->
-                if (key in freshOpen) null else targetByKey[key]
-            }
-            if (paths.isEmpty()) continue
-            coroutineScope {
-                paths.map { path ->
-                    async { dependencies.windows.openInOwnFrameAsync(path) }
-                }.awaitAll()
-            }
+            if (key in freshOpen) continue
+            val path = targetByKey[key] ?: continue
+            dependencies.windows.openInOwnFrameAsync(path)
             publishSwitchingSnapshot(request, profileName, targetKeys)
         }
 
@@ -320,7 +299,6 @@ class ProfileSwitchEngine {
 
     private fun publishStatus(status: SwitchStatus) {
         _status.value = status
-        dependencies.markActivity()
     }
 
     private fun isCurrent(request: SwitchRequest): Boolean {
@@ -343,8 +321,6 @@ class ProfileSwitchEngine {
     companion object {
         private const val MAX_PASSES = 3
         private const val CLOSE_TIMEOUT_MS = 30_000L
-        private const val CLOSE_BATCH_SIZE = 32
-        private const val OPEN_BATCH_SIZE = 32
 
         @JvmStatic
         fun getInstance(): ProfileSwitchEngine = service()

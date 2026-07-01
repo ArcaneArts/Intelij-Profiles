@@ -7,6 +7,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
+import com.intellij.openapi.wm.WindowManager
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -73,8 +74,9 @@ internal object ProjectWindows : ProjectWindowGateway {
     }
 
     /**
-     * Open [path] in its OWN window. If a project for that folder is already open, focus it and
-     * return it instead of opening a duplicate. Returns null if the open failed.
+     * Open [path] in its OWN window and await it settling (frame created + native tab reconciliation
+     * flushed), so the engine's serial loop constructs frames/tabs one at a time. If a project for
+     * that folder is already open, focus it and return it. Returns null if the open failed.
      */
     override suspend fun openInOwnFrameAsync(path: Path): ProjectWindowHandle? {
         rawLiveProjects().firstOrNull { matches(path, it) }?.let {
@@ -82,27 +84,57 @@ internal object ProjectWindows : ProjectWindowGateway {
             focus(handle)
             return handle
         }
-        return try {
-            val task = OpenProjectTask.build().withForceOpenInNewFrame(true)
-            val direct = try {
-                ProjectManagerEx.getInstanceEx().openProjectAsync(path, task)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                LOG.debug("Profiles: direct project open failed for $path; falling back to open/import", e)
-                null
-            }
-            if (direct != null) return IdeProjectHandle(direct)
-            ProjectUtil.openOrImportAsync(path, task)?.let(::IdeProjectHandle)
+        val task = OpenProjectTask.build().withForceOpenInNewFrame(true)
+        val opened = try {
+            openInternal(path, task) ?: openPublicFallback(path)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
             LOG.warn("Profiles: open failed for $path", e)
             null
-        }
+        } ?: return null
+        awaitSettled(opened)
+        return IdeProjectHandle(opened)
     }
 
-    /** Force-close [project]: no veto, no save/confirm dialog; awaits dispose. Returns success. */
+    /** Internal forced-new-frame open (no public equivalent on 253+); direct then open/import. */
+    private suspend fun openInternal(path: Path, task: OpenProjectTask): Project? {
+        val direct = try {
+            ProjectManagerEx.getInstanceEx().openProjectAsync(path, task)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            LOG.debug("Profiles: direct project open failed for $path; falling back to open/import", e)
+            null
+        }
+        return direct ?: ProjectUtil.openOrImportAsync(path, task)
+    }
+
+    /** Public last-resort open (may reuse a frame). Only reached if the internal paths are gone. */
+    private suspend fun openPublicFallback(path: Path): Project? =
+        try {
+            @Suppress("DEPRECATION")
+            ProjectManager.getInstance().loadAndOpenProject(path.toString())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            LOG.warn("Profiles: public fallback open failed for $path", e)
+            null
+        }
+
+    /**
+     * Let the just-opened [project]'s frame settle before the next open starts. The open already awaited
+     * project/frame creation; here we drain the EDT twice (public API only, no internal startup hooks) so
+     * the platform's native window/tab reconciliation (posted via invokeLater during open) runs to
+     * completion. Serial opening plus this drain is what stops the meshed toolbar/tabs.
+     */
+    private suspend fun awaitSettled(project: Project) {
+        if (project.isDisposed) return
+        withContext(Dispatchers.EDT) { /* drain EDT: run tab reconciliation queued during open */ }
+        withContext(Dispatchers.EDT) { /* drain again: run anything the first drain scheduled */ }
+    }
+
+    /** Force-close [project]: veto-free, no save/confirm dialog; awaits dispose. Returns success. */
     override suspend fun closeProject(project: ProjectWindowHandle): Boolean {
         val ideProject = (project as? IdeProjectHandle)?.project ?: return false
         if (ideProject.isDisposed) return true
@@ -117,16 +149,31 @@ internal object ProjectWindows : ProjectWindowGateway {
                 false
             }
         if (attempt(true) || ideProject.isDisposed) return true
-        // Escalate once: close without saving rather than leave a leftover window.
-        return attempt(false) || ideProject.isDisposed
+        if (attempt(false) || ideProject.isDisposed) return true
+        // Public last-resort (may prompt): only reached if the internal veto-free close is unavailable.
+        return closePublicFallback(ideProject)
     }
+
+    private suspend fun closePublicFallback(project: Project): Boolean =
+        withContext(Dispatchers.EDT) {
+            try {
+                ProjectManager.getInstance().closeAndDispose(project)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                LOG.warn("Profiles: public close fallback failed for ${project.name}", e)
+                false
+            }
+        }
 
     override suspend fun focus(project: ProjectWindowHandle) {
         val ideProject = (project as? IdeProjectHandle)?.project ?: return
         if (ideProject.isDisposed) return
         withContext(Dispatchers.EDT) {
             try {
-                ProjectUtil.focusProjectWindow(ideProject, false)
+                val frame = WindowManager.getInstance().getFrame(ideProject) ?: return@withContext
+                frame.toFront()
+                frame.requestFocus()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {

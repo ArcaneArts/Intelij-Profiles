@@ -112,7 +112,7 @@ class ProfileSwitchEngineTest {
     }
 
     @Test
-    fun `extra projects start closing as a batch before secondary projects open`() = runBlocking {
+    fun `extra projects close one at a time before secondary projects open`() = runBlocking {
         val closeOldA = CompletableDeferred<Unit>()
         val closeOldB = CompletableDeferred<Unit>()
         val windows = FakeWindows(
@@ -135,14 +135,21 @@ class ProfileSwitchEngineTest {
 
             awaitUntil {
                 windows.closeStarted("/old-a") &&
-                    windows.closeStarted("/old-b") &&
                     (engine.status.value as? SwitchStatus.Switching)?.closingCount == 2
             }
 
+            // Serial invariant: the second close must not start until the first one completes.
+            assertFalse(windows.closeStarted("/old-b"))
             assertFalse(windows.hasOpen("/secondary"))
             assertEquals("Old", store.activeProfileName)
 
             closeOldA.complete(Unit)
+            awaitUntil { windows.closeStarted("/old-b") }
+
+            assertFalse(windows.hasOpen("/old-a"))
+            assertFalse(windows.hasOpen("/secondary"))
+            assertEquals("Old", store.activeProfileName)
+
             closeOldB.complete(Unit)
             awaitUntil { engine.status.value == SwitchStatus.Idle("Next") }
 
@@ -246,6 +253,33 @@ class ProfileSwitchEngineTest {
         }
     }
 
+    @Test
+    fun opensAndClosesOneAtATime() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val existing = setOf("/p/a", "/p/b", "/p/c", "/p/d", "/p/e", "/p/f", "/x/old1", "/x/old2")
+            val initial = listOf(FakeProject("old1", "/x/old1"), FakeProject("old2", "/x/old2"))
+            val windows = FakeWindows(existingPaths = existing, initialProjects = initial)
+            val store = FakeStore(activeProfileName = null, profileNames = setOf("Work"))
+            val engine = engine(scope, windows, store)
+
+            engine.requestSwitch(
+                Profile("Work", null, null, listOf("/p/a", "/p/b", "/p/c", "/p/d", "/p/e", "/p/f")),
+            )
+            awaitUntil { store.activeProfileName == "Work" }
+
+            assertEquals(1, windows.maxConcurrentOpens)
+            assertEquals(1, windows.maxConcurrentCloses)
+            assertEquals(
+                setOf("/p/a", "/p/b", "/p/c", "/p/d", "/p/e", "/p/f"),
+                windows.openByKey().keys,
+            )
+            assertEquals("/p/a", windows.firstOpenedKey)
+        } finally {
+            scope.cancel()
+        }
+    }
+
     private fun engine(
         scope: CoroutineScope,
         windows: FakeWindows,
@@ -260,7 +294,6 @@ class ProfileSwitchEngineTest {
                 notify = { content, type -> notifications.add(content to type) },
                 isApplicationDisposed = { false },
                 pathExists = { windows.exists(it) },
-                markActivity = {},
             ),
         )
 
@@ -298,6 +331,13 @@ class ProfileSwitchEngineTest {
         val closedKeys = mutableListOf<String>()
         private val closeStartedKeys = mutableSetOf<String>()
 
+        // Concurrency instrumentation: the reconciler MUST open/close one project at a time.
+        var openInFlight = 0
+        var maxConcurrentOpens = 0
+        var closeInFlight = 0
+        var maxConcurrentCloses = 0
+        var firstOpenedKey: String? = null
+
         fun exists(path: Path): Boolean = path.toString() in existingPaths
 
         fun hasOpen(key: String): Boolean = projects.any { !it.isDisposed && it.key == key }
@@ -319,24 +359,39 @@ class ProfileSwitchEngineTest {
         }
 
         override suspend fun openInOwnFrameAsync(path: Path): ProjectWindowHandle? {
-            val key = path.toString()
-            projects.firstOrNull { !it.isDisposed && it.key == key }?.let { return it }
-            if (key in openFailures) return null
-            val project = FakeProject(path.fileName?.toString() ?: key, key)
-            projects.add(project)
-            return project
+            openInFlight++
+            maxConcurrentOpens = maxOf(maxConcurrentOpens, openInFlight)
+            try {
+                kotlinx.coroutines.yield()
+                val key = path.toString()
+                projects.firstOrNull { !it.isDisposed && it.key == key }?.let { return it }
+                if (key in openFailures) return null
+                val project = FakeProject(path.fileName?.toString() ?: key, key)
+                projects.add(project)
+                if (firstOpenedKey == null) firstOpenedKey = key
+                return project
+            } finally {
+                openInFlight--
+            }
         }
 
         override suspend fun closeProject(project: ProjectWindowHandle): Boolean {
-            val fake = project as? FakeProject ?: return false
-            val closeKey = fake.key ?: fake.name
-            synchronized(closeStartedKeys) {
-                closeStartedKeys.add(closeKey)
+            closeInFlight++
+            maxConcurrentCloses = maxOf(maxConcurrentCloses, closeInFlight)
+            try {
+                kotlinx.coroutines.yield()
+                val fake = project as? FakeProject ?: return false
+                val closeKey = fake.key ?: fake.name
+                synchronized(closeStartedKeys) {
+                    closeStartedKeys.add(closeKey)
+                }
+                closeGates[closeKey]?.await()
+                fake.dispose()
+                closedKeys.add(closeKey)
+                return true
+            } finally {
+                closeInFlight--
             }
-            closeGates[closeKey]?.await()
-            fake.dispose()
-            closedKeys.add(closeKey)
-            return true
         }
 
         override suspend fun focus(project: ProjectWindowHandle) = Unit

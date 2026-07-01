@@ -28,6 +28,20 @@
   renders text/icon from the presentation) and now read the plugin's own version from a build-filtered
   resource instead of a `@Internal` plugin-descriptor lookup. Only `forceCloseProjectAsync` (the
   veto-free project close, which has no public equivalent) remains, on all supported builds.
+- Rewrote the profile-switch engine around a strictly serial reconcile pass.
+- Rebuilt the main-toolbar widget on the public `CustomComponentAction` (was the impl-package
+  `ExpandableComboAction`), with a live subscription to switch state and a capped width. Window focus now
+  uses the public `WindowManager` instead of the internal `ProjectUtil.focusProjectWindow`. The only
+  remaining internal-API calls are the veto-free close and the forced-new-frame open (no public
+  equivalent on 253+), isolated in `engine/ProjectWindows.kt` and each guarded by a public fallback.
+
+### Fixed
+- Switching a profile no longer garbles the main toolbar / project tabs when the profile has many
+  projects. The switch engine now opens and closes projects one at a time (awaiting each window's frame
+  settle before the next), matching how the platform itself reopens multiple projects, instead of firing
+  up to 32 concurrent opens/closes that raced frame and tab construction.
+- The toolbar widget no longer sticks on "Switching..." after a switch completes, and a long profile
+  name or emoji can no longer blow out the widget width and crowd the Project/Branch widgets.
 
 ## 1.0.1 - 2026-06-29
 
