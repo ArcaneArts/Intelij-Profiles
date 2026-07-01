@@ -46,6 +46,13 @@ class ReconcilePlannerTest {
     }
 
     @Test
+    fun `the primary target is never planned for close when already open`() {
+        val p = plan(listOf("/primary", "/next"), setOf("/primary", "/old"))
+        assertFalse("/primary" in p.toCloseKeys)
+        assertEquals(listOf("/old"), p.toCloseKeys)
+    }
+
+    @Test
     fun `an already-open target is never reopened (no duplicate window)`() {
         val p = plan(listOf("/a", "/b"), setOf("/a", "/b"))
         assertTrue(p.toOpenKeys.isEmpty())

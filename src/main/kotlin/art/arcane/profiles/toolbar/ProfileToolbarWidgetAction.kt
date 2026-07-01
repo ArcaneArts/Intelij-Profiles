@@ -5,6 +5,8 @@ import art.arcane.profiles.actions.ImportProfilesFromFolderAction
 import art.arcane.profiles.actions.NewProfileAction
 import art.arcane.profiles.actions.SaveCurrentAsProfileAction
 import art.arcane.profiles.actions.UpdateActiveProfileFromWindowsAction
+import art.arcane.profiles.engine.ProfileSwitchEngine
+import art.arcane.profiles.engine.SwitchStatus
 import art.arcane.profiles.ui.ProfilePopups
 import art.arcane.profiles.ui.ProfilePresentation
 import art.arcane.profiles.ui.ProfilesConfigurable
@@ -35,6 +37,17 @@ class ProfileToolbarWidgetAction : ExpandableComboAction(), DumbAware {
     override fun update(e: AnActionEvent) {
         e.presentation.isEnabledAndVisible = e.project != null
         val service = ProfilesService.getInstance()
+        val switchStatus = ProfileSwitchEngine.getInstance().status.value
+        if (switchStatus is SwitchStatus.Switching) {
+            val target = service.findEntry(switchStatus.targetProfileName)?.toModel()
+            e.presentation.text = "Switching to ${switchStatus.targetProfileName}..."
+            e.presentation.icon = target?.let { ProfilePresentation.icon(it) } ?: AllIcons.General.User
+            e.presentation.description =
+                "Switching to ${switchStatus.targetProfileName}: " +
+                    "${switchStatus.openedCount}/${switchStatus.targetCount} open, " +
+                    "${switchStatus.closingCount} closing"
+            return
+        }
         val activeName = service.activeProfileName
         val active = activeName?.let { service.findEntry(it)?.toModel() }
         e.presentation.text = active?.let { ProfilePresentation.label(it) } ?: "Profiles"

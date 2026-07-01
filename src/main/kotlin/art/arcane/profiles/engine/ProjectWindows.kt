@@ -1,11 +1,13 @@
 package art.arcane.profiles.engine
 
+import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
+import com.intellij.platform.ide.progress.withBackgroundProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,30 +19,55 @@ import java.nio.file.Path
  * focused rather than duplicated; closing is veto-free force-close. This is the only file that
  * touches non-public project APIs.
  */
-internal object ProjectWindows {
+internal interface ProjectWindowHandle {
+    val name: String
+    val isDisposed: Boolean
+}
+
+internal interface ProjectWindowGateway {
+    fun liveProjects(): List<ProjectWindowHandle>
+    fun keyOf(project: ProjectWindowHandle): String?
+    fun openByKey(): Map<String, ProjectWindowHandle>
+    suspend fun openInOwnFrameAsync(path: Path): ProjectWindowHandle?
+    suspend fun closeProject(project: ProjectWindowHandle): Boolean
+    suspend fun focus(project: ProjectWindowHandle)
+    suspend fun withSwitchProgress(project: ProjectWindowHandle, title: String, action: suspend () -> Unit)
+}
+
+internal object ProjectWindows : ProjectWindowGateway {
 
     private val LOG = Logger.getInstance(ProjectWindows::class.java)
 
-    /** Currently open, real (non-default, non-disposed) projects — the reconciler's ground truth. */
-    fun liveProjects(): List<Project> =
+    private data class IdeProjectHandle(val project: Project) : ProjectWindowHandle {
+        override val name: String get() = project.name
+        override val isDisposed: Boolean get() = project.isDisposed
+    }
+
+    private fun rawLiveProjects(): List<Project> =
         ProjectManager.getInstance().openProjects.filter { !it.isDisposed && !it.isDefault }
 
+    /** Currently open, real (non-default, non-disposed) projects — the reconciler's ground truth. */
+    override fun liveProjects(): List<ProjectWindowHandle> = rawLiveProjects().map(::IdeProjectHandle)
+
     /** True when [project]'s folder is the same real directory as [target] (symlink/case/`/private`-safe). */
-    fun matches(target: Path, project: Project): Boolean {
+    private fun matches(target: Path, project: Project): Boolean {
         val base = project.basePath ?: return false
         return runCatching { canonicalKey(Path.of(base)) == canonicalKey(target) }.getOrDefault(false)
     }
 
     /** Canonical key of an open [project] (its folder real-path), or null if it has no base dir. */
-    fun keyOf(project: Project): String? =
+    private fun keyOfProject(project: Project): String? =
         project.basePath?.let { runCatching { canonicalKey(Path.of(it)) }.getOrNull() }
 
+    override fun keyOf(project: ProjectWindowHandle): String? =
+        (project as? IdeProjectHandle)?.project?.let(::keyOfProject)
+
     /** Live projects indexed by canonical key (first wins). Projects with no base dir are excluded. */
-    fun openByKey(): Map<String, Project> {
-        val map = LinkedHashMap<String, Project>()
-        for (project in liveProjects()) {
-            val key = keyOf(project) ?: continue
-            map.putIfAbsent(key, project)
+    override fun openByKey(): Map<String, ProjectWindowHandle> {
+        val map = LinkedHashMap<String, ProjectWindowHandle>()
+        for (project in rawLiveProjects()) {
+            val key = keyOfProject(project) ?: continue
+            map.putIfAbsent(key, IdeProjectHandle(project))
         }
         return map
     }
@@ -49,20 +76,15 @@ internal object ProjectWindows {
      * Open [path] in its OWN window. If a project for that folder is already open, focus it and
      * return it instead of opening a duplicate. Returns null if the open failed.
      */
-    suspend fun openInOwnFrame(path: Path): Project? {
-        liveProjects().firstOrNull { matches(path, it) }?.let {
-            focus(it)
-            return it
+    override suspend fun openInOwnFrameAsync(path: Path): ProjectWindowHandle? {
+        rawLiveProjects().firstOrNull { matches(path, it) }?.let {
+            val handle = IdeProjectHandle(it)
+            focus(handle)
+            return handle
         }
         return try {
-            // Version-stable open: the 3-arg primitive overload (Path, Project?, Boolean) does NOT
-            // bake a platform-version-specific OpenProjectTask constructor into our bytecode, so the
-            // plugin loads on 2025.3.2 through 2026.2+. It's blocking, so run it off the EDT.
-            // forceOpenInNewFrame=true gives its own window; we already deduped above so the platform
-            // never picks a victim to close.
-            withContext(Dispatchers.IO) {
-                ProjectUtil.openOrImport(path, null, true)
-            }
+            val task = OpenProjectTask.build().withForceOpenInNewFrame(true)
+            ProjectUtil.openOrImportAsync(path, task)?.let(::IdeProjectHandle)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -72,32 +94,49 @@ internal object ProjectWindows {
     }
 
     /** Force-close [project]: no veto, no save/confirm dialog; awaits dispose. Returns success. */
-    suspend fun closeProject(project: Project): Boolean {
-        if (project.isDisposed) return true
+    override suspend fun closeProject(project: ProjectWindowHandle): Boolean {
+        val ideProject = (project as? IdeProjectHandle)?.project ?: return false
+        if (ideProject.isDisposed) return true
         val ex = ProjectManagerEx.getInstanceEx()
         suspend fun attempt(save: Boolean): Boolean =
             try {
-                ex.forceCloseProjectAsync(project, save)
+                ex.forceCloseProjectAsync(ideProject, save)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                LOG.warn("Profiles: forceClose(save=$save) failed for ${project.name}", e)
+                LOG.warn("Profiles: forceClose(save=$save) failed for ${ideProject.name}", e)
                 false
             }
-        if (attempt(true) || project.isDisposed) return true
+        if (attempt(true) || ideProject.isDisposed) return true
         // Escalate once: close without saving rather than leave a leftover window.
-        return attempt(false) || project.isDisposed
+        return attempt(false) || ideProject.isDisposed
     }
 
-    suspend fun focus(project: Project) {
-        if (project.isDisposed) return
+    override suspend fun focus(project: ProjectWindowHandle) {
+        val ideProject = (project as? IdeProjectHandle)?.project ?: return
+        if (ideProject.isDisposed) return
         withContext(Dispatchers.EDT) {
             try {
-                ProjectUtil.focusProjectWindow(project, false)
+                ProjectUtil.focusProjectWindow(ideProject, false)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                LOG.warn("Profiles: focus failed for ${project.name}", e)
+                LOG.warn("Profiles: focus failed for ${ideProject.name}", e)
+            }
+        }
+    }
+
+    override suspend fun withSwitchProgress(
+        project: ProjectWindowHandle,
+        title: String,
+        action: suspend () -> Unit,
+    ) {
+        val ideProject = (project as? IdeProjectHandle)?.project
+        if (ideProject == null || ideProject.isDisposed) {
+            action()
+        } else {
+            withBackgroundProgress(ideProject, title, false) {
+                action()
             }
         }
     }

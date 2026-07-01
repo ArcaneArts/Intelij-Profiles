@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "art.arcane"
-version = "1.0.4"
+version = "1.0.5"
 
 dependencies {
     intellijPlatform {
@@ -71,12 +71,16 @@ tasks.register<Copy>("buildOut") {
     group = "build"
     description = "Builds the plugin distribution zip and copies it into OUT/."
     dependsOn("buildPlugin")
-    from(layout.buildDirectory.dir("distributions")) {
-        include("*.zip")
+    val outDir = layout.projectDirectory.dir("OUT")
+    val currentZip = layout.buildDirectory.file("distributions/${project.name}-$version.zip")
+    from(currentZip)
+    into(outDir)
+    doFirst {
+        outDir.asFile.mkdirs()
+        delete(outDir.asFile.listFiles() ?: emptyArray<File>())
     }
-    into(layout.projectDirectory.dir("OUT"))
     doLast {
-        logger.lifecycle("Plugin copied to: ${layout.projectDirectory.dir("OUT").asFile}")
+        logger.lifecycle("Plugin copied to: ${outDir.asFile}")
     }
 }
 

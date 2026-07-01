@@ -2,6 +2,7 @@ package art.arcane.profiles.ui
 
 import art.arcane.profiles.ProfilesService
 import art.arcane.profiles.engine.ProfileSwitchEngine
+import art.arcane.profiles.engine.SwitchStatus
 import art.arcane.profiles.model.Profile
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
@@ -20,19 +21,24 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
  */
 object ProfilePopups {
 
-    /** "Name (active) — N projects" row label. */
-    fun rowLabel(profile: Profile, active: Boolean): String {
-        val activeMark = if (active) " (active)" else ""
+    /** "Name (active)" / "Name (switching)" row label with project count. */
+    fun rowLabel(profile: Profile, active: Boolean, switching: Boolean = false): String {
+        val activeMark = when {
+            switching -> " (switching)"
+            active -> " (active)"
+            else -> ""
+        }
         val n = profile.projectPaths.size
         val count = " — $n " + if (n == 1) "project" else "projects"
         return ProfilePresentation.label(profile) + activeMark + count
     }
 
-    /** One switch action per profile, with the active one marked. */
+    /** One switch action per profile, with the active or switching one marked. */
     fun profileSwitchActions(): List<AnAction> {
         val service = ProfilesService.getInstance()
         val active = service.activeProfileName
-        return service.profiles.map { SwitchToProfileAction(it, it.name == active) }
+        val switchingTarget = (ProfileSwitchEngine.getInstance().status.value as? SwitchStatus.Switching)?.targetProfileName
+        return service.profiles.map { SwitchToProfileAction(it, it.name == active, it.name == switchingTarget) }
     }
 
     /** A standalone speed-search popup listing profiles to switch to (used by the bindable action). */
@@ -53,8 +59,8 @@ object ProfilePopups {
         )
     }
 
-    internal class SwitchToProfileAction(private val profile: Profile, active: Boolean) : AnAction(
-        rowLabel(profile, active),
+    internal class SwitchToProfileAction(private val profile: Profile, active: Boolean, switching: Boolean) : AnAction(
+        rowLabel(profile, active, switching),
         "Switch to \"${profile.name}\"",
         ProfilePresentation.icon(profile),
     ), DumbAware {
